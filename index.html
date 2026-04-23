@@ -531,9 +531,41 @@
     line-height: 1.7;
   }
   .prices-footnote span { color: var(--gold); }
+
+  /* ── GEOAPIFY AUTOCOMPLETE ── */
+  .autocomplete-wrap { position: relative; }
+  .autocomplete-dropdown {
+    position: absolute; top: 100%; left: 0; right: 0; z-index: 5000;
+    background: var(--navy-mid);
+    border: 1px solid var(--border);
+    border-top: none;
+    max-height: 220px; overflow-y: auto;
+    display: none;
+  }
+  .autocomplete-dropdown.open { display: block; }
+  .autocomplete-item {
+    padding: 0.7rem 1rem;
+    font-size: 0.78rem; color: var(--cream);
+    cursor: pointer; line-height: 1.4;
+    border-bottom: 1px solid rgba(201,168,76,0.08);
+    transition: background 0.15s;
+    display: flex; align-items: flex-start; gap: 0.6rem;
+  }
+  .autocomplete-item:last-child { border-bottom: none; }
+  .autocomplete-item:hover, .autocomplete-item.active {
+    background: rgba(201,168,76,0.1);
+    color: var(--gold);
+  }
+  .autocomplete-item .ac-icon { color: var(--gold); font-size: 0.7rem; margin-top: 0.15rem; flex-shrink: 0; }
+  .autocomplete-item .ac-main { font-weight: 500; }
+  .autocomplete-item .ac-sub { font-size: 0.68rem; color: var(--text-muted); margin-top: 0.1rem; }
+  .autocomplete-loading {
+    padding: 0.7rem 1rem; font-size: 0.75rem;
+    color: var(--text-muted); font-style: italic;
+  }
 </style>
 <meta property="og:type" content="website"/>
-<meta property="og:url" content="https://athenselitertransfers.gr/"/>
+<meta property="og:url" content="https://athenselitetransfers.gr/"/>
 <meta property="og:title" content="Athens Elite Transfers | Luxury Private Transfers"/>
 <meta property="og:description" content="Premium private transfer services in Athens. Airport transfers, city tours, and luxury transportation by Marjus Oruci."/>
 <meta property="og:locale" content="el_GR"/>
@@ -548,7 +580,7 @@
   "name": "Athens Elite Transfers",
   "alternateName": "Marjus Oruci",
   "description": "Premium private transfer services in Athens and Attica. Airport transfers, city tours, port transfers and luxury transportation.",
-  "url": "https://athenselitertransfers.gr",
+  "url": "https://athenselitetransfers.gr",
   "telephone": "+306936475451",
   "email": "marjoruci@gmail.com",
   "vatID": "122559412",
@@ -604,6 +636,7 @@
     ]
   }
 }
+
 </script>
 </head>
 <body>
@@ -743,12 +776,18 @@
         <div class="form-group">
           <label data-lang="en">Pickup Location *</label>
           <label data-lang="gr">Σημείο Παραλαβής *</label>
-          <input type="text" name="pickup" required placeholder="Airport / Hotel / Address"/>
+          <div class="autocomplete-wrap">
+            <input type="text" id="pickup-input" name="pickup" required placeholder="Airport / Hotel / Address" autocomplete="off"/>
+            <div class="autocomplete-dropdown" id="pickup-dropdown"></div>
+          </div>
         </div>
         <div class="form-group">
           <label data-lang="en">Drop-off Location *</label>
           <label data-lang="gr">Σημείο Αποβίβασης *</label>
-          <input type="text" name="dropoff" required placeholder="Destination"/>
+          <div class="autocomplete-wrap">
+            <input type="text" id="dropoff-input" name="dropoff" required placeholder="Destination" autocomplete="off"/>
+            <div class="autocomplete-dropdown" id="dropoff-dropdown"></div>
+          </div>
         </div>
         <div class="form-group">
           <label data-lang="en">Date *</label>
@@ -1278,6 +1317,106 @@
       : '<span data-lang="en">Send Booking Request</span>';
   });
 
+
+  // ── GEOAPIFY AUTOCOMPLETE ──
+  const GEOAPIFY_KEY = 'eae4f3e29fe447588d17598e565b46fe';
+
+  function setupAutocomplete(inputId, dropdownId) {
+    const input = document.getElementById(inputId);
+    const dropdown = document.getElementById(dropdownId);
+    if (!input || !dropdown) return;
+    let activeIndex = -1;
+    let debounceTimer;
+    let currentResults = [];
+
+    input.addEventListener('input', function() {
+      clearTimeout(debounceTimer);
+      const query = this.value.trim();
+      if (query.length < 3) { closeDropdown(); return; }
+      dropdown.innerHTML = '<div class="autocomplete-loading">Searching...</div>';
+      dropdown.classList.add('open');
+      debounceTimer = setTimeout(() => fetchSuggestions(query), 300);
+    });
+
+    input.addEventListener('keydown', function(e) {
+      const items = dropdown.querySelectorAll('.autocomplete-item');
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        activeIndex = Math.min(activeIndex + 1, items.length - 1);
+        updateActive(items);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        activeIndex = Math.max(activeIndex - 1, 0);
+        updateActive(items);
+      } else if (e.key === 'Enter' && activeIndex >= 0) {
+        e.preventDefault();
+        if (currentResults[activeIndex]) selectResult(currentResults[activeIndex]);
+      } else if (e.key === 'Escape') {
+        closeDropdown();
+      }
+    });
+
+    document.addEventListener('click', function(e) {
+      if (!input.contains(e.target) && !dropdown.contains(e.target)) closeDropdown();
+    });
+
+    function updateActive(items) {
+      items.forEach((item, i) => item.classList.toggle('active', i === activeIndex));
+    }
+
+    async function fetchSuggestions(query) {
+      try {
+        const url = 'https://api.geoapify.com/v1/geocode/autocomplete?text=' + encodeURIComponent(query) + '&filter=countrycode:gr&lang=en&limit=5&apiKey=' + GEOAPIFY_KEY;
+        const res = await fetch(url);
+        const data = await res.json();
+        currentResults = data.features || [];
+        renderDropdown(currentResults);
+      } catch(err) {
+        console.error('Geoapify error:', err);
+        closeDropdown();
+      }
+    }
+
+    function renderDropdown(results) {
+      activeIndex = -1;
+      if (!results.length) {
+        dropdown.innerHTML = '<div class="autocomplete-loading">No results found</div>';
+        return;
+      }
+      dropdown.innerHTML = results.map((f, i) => {
+        const p = f.properties;
+        const main = p.name || p.street || p.formatted.split(',')[0];
+        const sub = p.formatted.replace(main + ', ', '');
+        return '<div class="autocomplete-item" data-index="' + i + '">' +
+          '<span class="ac-icon">✦</span>' +
+          '<span><div class="ac-main">' + main + '</div><div class="ac-sub">' + sub + '</div></span>' +
+          '</div>';
+      }).join('');
+      dropdown.querySelectorAll('.autocomplete-item').forEach(function(item, i) {
+        item.addEventListener('mousedown', function(e) {
+          e.preventDefault();
+          selectResult(currentResults[i]);
+        });
+      });
+    }
+
+    function selectResult(feature) {
+      input.value = feature.properties.formatted;
+      closeDropdown();
+    }
+
+    function closeDropdown() {
+      dropdown.classList.remove('open');
+      dropdown.innerHTML = '';
+      activeIndex = -1;
+      currentResults = [];
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    setupAutocomplete('pickup-input', 'pickup-dropdown');
+    setupAutocomplete('dropoff-input', 'dropoff-dropdown');
+  });
 </script>
 
 <!-- WHATSAPP FLOAT BUTTON -->
